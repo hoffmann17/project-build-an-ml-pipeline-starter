@@ -44,11 +44,13 @@ def go(args):
     run.config.update(args)
 
     # Get the Random Forest configuration and update W&B
+    logger.info("Get the Random Forest configuration and update W&B")
     with open(args.rf_config) as fp:
         rf_config = json.load(fp)
     run.config.update(rf_config)
 
     # Fix the random seed for the Random Forest, so we get reproducible results
+    logger.info("Fix the random seed for the Random Forest, so we get reproducible results")
     rf_config['random_state'] = args.random_seed
 
     # Use run.use_artifact(...).file() to get the train and validation artifact
@@ -74,6 +76,7 @@ def go(args):
     ######################################
     # Fit the pipeline sk_pipe by calling the .fit method on X_train and y_train
     # YOUR CODE HERE
+    sk_pipe.fit(X_train, y_train)
     ######################################
 
     # Compute r2 and MAE
@@ -95,9 +98,25 @@ def go(args):
     ######################################
     # Save the sk_pipe pipeline as a mlflow.sklearn model in the directory "random_forest_dir"
     # HINT: use mlflow.sklearn.save_model
+    #signature = mlflow.models.infer_signature(X_val, y_pred)
+
+    # Debugging column types before inference
+    logger.info(f"Column types in X_val: {X_val.dtypes}")
+    problematic_columns = X_val.select_dtypes(include=['object']).columns
+    logger.info(f"Problematic columns: {problematic_columns}")
+
+    # Ensure all columns have valid types
+    for col in problematic_columns:
+        X_val[col] = X_val[col].astype(str)  # Convert problematic columns to string
+
+    # Re-attempt signature inference
     signature = mlflow.models.infer_signature(X_val, y_pred)
+    
     mlflow.sklearn.save_model(
         # YOUR CODE HERE
+        sk_pipe,
+        path="random_forest_dir",
+        #
         signature = signature,
         input_example = X_train.iloc[:5]
     )
@@ -122,6 +141,7 @@ def go(args):
     run.summary['r2'] = r_squared
     # Now save the variable mae under the key "mae".
     # YOUR CODE HERE
+    run.summary['mae'] = mae  # Save MAE to wandb summary
     ######################################
 
     # Upload to W&B the feture importance visualization
@@ -130,7 +150,6 @@ def go(args):
           "feature_importance": wandb.Image(fig_feat_imp),
         }
     )
-
 
 def plot_feature_importance(pipe, feat_names):
     # We collect the feature importance for all non-nlp features first
@@ -165,6 +184,8 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     # 2 - A OneHotEncoder() step to encode the variable
     non_ordinal_categorical_preproc = make_pipeline(
         # YOUR CODE HERE
+        SimpleImputer(strategy="most_frequent"), # Impute missing values
+        OrdinalEncoder() # Encode as ordinal
     )
     ######################################
 
@@ -228,6 +249,8 @@ def get_inference_pipeline(rf_config, max_tfidf_features):
     sk_pipe = Pipeline(
         steps =[
         # YOUR CODE HERE
+        ("preprocessor", preprocessor),
+        ("random_forest", random_forest)
         ]
     )
 
